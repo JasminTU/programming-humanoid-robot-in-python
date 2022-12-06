@@ -12,9 +12,23 @@
 
 from forward_kinematics import ForwardKinematicsAgent
 from numpy.matlib import identity
+from math import atan2
+import numpy as np
+
 
 
 class InverseKinematicsAgent(ForwardKinematicsAgent):
+
+    def from_trans(self, A):
+        x = A[3, 0]
+        y = A[3, 1]
+        z = A[3, 2]
+        vals = np.array([x, y, z])
+       
+        return vals
+
+
+
     def inverse_kinematics(self, effector_name, transform):
         '''solve the inverse kinematics
 
@@ -22,15 +36,55 @@ class InverseKinematicsAgent(ForwardKinematicsAgent):
         :param transform: 4x4 transform matrix
         :return: list of joint angles
         '''
-        joint_angles = []
+
         # YOUR CODE HERE
-        return joint_angles
+        max_step = 0.1
+        lambda_ = 0.1
+        
+        joints = (self.perception.joint).copy()
+        
+        tar = (self.from_trans(transform)).T
+
+        for i in range(1000):
+            self.forward_kinematics(joints)
+
+            Ts = [0] * len(self.chains[effector_name])
+            for i, name in enumerate(self.chains[effector_name]):
+                Ts[i] = self.transforms[name] 
+
+           
+            Te = np.array([self.from_trans(Ts[-1])]).T
+            
+            e = tar - Te
+            e[e > max_step] = max_step
+            e[e < -max_step] = -max_step
+            
+            T = np.array([self.from_trans(i) for i in Ts[:]]).T
+            J = Te - T
+            J[-1, :] = 1
+            JJT = np.linalg.pinv(J @ J.T)
+            d_theta = lambda_ * (J.T @ JJT @ e)
+            for i, name in enumerate(self.chains[effector_name]):
+                joints[name] += np.asarray(d_theta.T)[0, i]
+            if np.linalg.norm(d_theta) < 1e-4:
+                break
+        return joints
 
     def set_transforms(self, effector_name, transform):
         '''solve the inverse kinematics and control joints use the results
         '''
         # YOUR CODE HERE
-        self.keyframes = ([], [], [])  # the result joint angles have to fill in
+        angles = self.inverse_kinematics(effector_name,transform)
+        names = []
+        times = []
+        keys = []
+        for name in self.chains[effector_name]:
+            names.append(name)
+            times.append([2, 5])
+            keys.append([[self.perception.joint[name], [3, 0, 0], [3, 0, 0]], [angles[name], [3, 0, 0], [3, 0, 0]]])
+        self.keyframes = (names, times, keys)
+        print(angles)
+        
 
 if __name__ == '__main__':
     agent = InverseKinematicsAgent()
